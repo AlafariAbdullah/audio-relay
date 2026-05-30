@@ -1,0 +1,14 @@
+{
+  "name": "audio-relay",
+  "version": "0.1.0",
+  "description": "WebRTC audio relay — PC to iPhone, no app needed",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {}
+}

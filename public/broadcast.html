@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudioRelay — Broadcast</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --surface: #12121a; --border: #1e1e2e;
+      --accent: #7c6af7; --accent2: #f76ac8;
+      --green: #4ade80; --yellow: #facc15; --red: #f87171;
+      --text: #e8e8f0; --muted: #5a5a7a;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 2rem; gap: 1.5rem;
+    }
+    h1 { font-size: 0.75rem; letter-spacing: 0.3em; color: var(--muted); text-transform: uppercase; }
+
+    .panel {
+      width: 100%; max-width: 480px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1.5rem;
+    }
+    .panel-title {
+      font-size: 0.65rem; letter-spacing: 0.25em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 1rem;
+      padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+    }
+
+    .row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.4rem 0; font-size: 0.8rem;
+    }
+    .label { color: var(--muted); }
+    .val { color: var(--text); font-weight: 500; }
+    .val.ok   { color: var(--green); }
+    .val.warn { color: var(--yellow); }
+    .val.err  { color: var(--red); }
+    .val.info { color: var(--accent); }
+
+    #log {
+      font-size: 0.72rem; color: var(--muted);
+      max-height: 180px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 0.25rem;
+    }
+    .log-line { display: flex; gap: 0.75rem; }
+    .log-time { color: #2a2a3a; flex-shrink: 0; }
+    .log-msg  { color: #4a4a6a; }
+    .log-msg.ok   { color: var(--green); }
+    .log-msg.warn { color: var(--yellow); }
+    .log-msg.err  { color: var(--red); }
+
+    #start-btn {
+      width: 100%; max-width: 480px;
+      padding: 0.9rem; cursor: pointer;
+      background: none; border: 1px solid var(--accent);
+      color: var(--accent); font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase;
+      border-radius: 4px; transition: background 0.2s, color 0.2s;
+    }
+    #start-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+    #start-btn:disabled { border-color: var(--border); color: var(--muted); cursor: default; }
+
+    #stop-btn {
+      width: 100%; max-width: 480px;
+      padding: 0.9rem; cursor: pointer;
+      background: none; border: 1px solid var(--red);
+      color: var(--red); font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase;
+      border-radius: 4px; transition: background 0.2s, color 0.2s;
+      display: none;
+    }
+    #stop-btn:hover { background: var(--red); color: #fff; }
+
+    .hint {
+      font-size: 0.7rem; color: var(--muted); text-align: center;
+      max-width: 480px; line-height: 1.7; opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>AudioRelay — Broadcast</h1>
+
+  <div class="panel">
+    <div class="panel-title">Status</div>
+    <div class="row"><span class="label">Signal</span>     <span class="val" id="s-ws">connecting…</span></div>
+    <div class="row"><span class="label">Audio source</span><span class="val" id="s-audio">—</span></div>
+    <div class="row"><span class="label">Phones</span>     <span class="val" id="s-phones">0</span></div>
+    <div class="row"><span class="label">WebRTC</span>     <span class="val" id="s-rtc">—</span></div>
+    <div class="row"><span class="label">HTTP stream</span><span class="val" id="s-http">—</span></div>
+    <div class="row"><span class="label">Bytes sent</span> <span class="val" id="s-bytes">—</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Log</div>
+    <div id="log"></div>
+  </div>
+
+  <button id="start-btn" onclick="startBroadcast()">Start Broadcast</button>
+  <button id="stop-btn"  onclick="stopBroadcast()">Stop Broadcast</button>
+
+  <p class="hint">
+    Keep this tab open on your PC.<br>
+    Open <strong>http://&lt;this-pc-ip&gt;:3000</strong> on the iPhone.
+  </p>
+
+  <script>
+  (() => {
+    // ── State ──────────────────────────────────────────────────────────────
+    let ws = null;
+    let pcs = new Map();        // phoneId → RTCPeerConnection
+    let localStream = null;
+    let statsTimer = null;
+    let wsConnected = false;
+    let phoneCount = 0;
+
+    const HOST = location.host;
+    const WS_URL = `ws://${HOST}/ws`;
+
+    // ── DOM helpers ────────────────────────────────────────────────────────
+    function setVal(id, text, cls) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = "val" + (cls ? " " + cls : "");
+    }
+
+    function log(msg, cls) {
+      const box = document.getElementById("log");
+      const now = new Date().toTimeString().slice(0, 8);
+      const div = document.createElement("div");
+      div.className = "log-line";
+      div.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${cls||''}">${msg}</span>`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+    function wsSend(obj) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    }
+
+    function connectWS() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        wsConnected = true;
+        setVal("s-ws", "connected", "ok");
+        log("Signaling connected", "ok");
+        wsSend({ type: "register_pc" });
+      };
+
+      ws.onmessage = async (e) => {
+        let msg; try { msg = JSON.parse(e.data); } catch { return; }
+
+        switch (msg.type) {
+          case "registered":
+            log("Registered as PC broadcaster", "ok");
+            break;
+
+          // Phone explicitly requested an offer — send one
+          case "phone_wants_offer":
+            log(`Phone requesting stream (id=${msg.phoneId})`);
+            phoneCount++;
+            setVal("s-phones", phoneCount);
+            if (localStream) {
+              await createOffer(msg.phoneId);
+            } else {
+              log("No audio captured yet — start broadcast first", "warn");
+            }
+            break;
+
+          // Phone sent us an answer
+          case "answer":
+            await handleAnswer(msg.sourceId, msg.sdp);
+            break;
+
+          // Phone sent us an ICE candidate
+          case "ice":
+            await handleIce(msg.sourceId, msg.candidate);
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        wsConnected = false;
+        setVal("s-ws", "reconnecting…", "warn");
+        setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    // ── Audio capture ──────────────────────────────────────────────────────
+    async function captureAudio() {
+      // 1. Try getDisplayMedia (captures system/tab audio — best option)
+      try {
+        const s = await navigator.mediaDevices.getDisplayMedia({
+          video: false,
+          audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 44100 }
+        });
+        log("System audio captured (getDisplayMedia)", "ok");
+        setVal("s-audio", "system audio", "ok");
+        return s;
+      } catch (e) {
+        log("getDisplayMedia failed: " + e.message, "warn");
+      }
+
+      // 2. Fall back to microphone
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        log("Microphone captured (fallback)", "warn");
+        setVal("s-audio", "microphone (fallback)", "warn");
+        return s;
+      } catch (e) {
+        log("getUserMedia failed: " + e.message, "err");
+        setVal("s-audio", "failed", "err");
+        return null;
+      }
+    }
+
+    // ── WebRTC offer/answer ────────────────────────────────────────────────
+    async function createOffer(phoneId) {
+      if (!localStream) return;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+      pcs.set(phoneId, pc);
+
+      // Add all audio tracks
+      localStream.getAudioTracks().forEach(track => pc.addTrack(track, localStream));
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) wsSend({ type: "ice", target: phoneId, candidate: e.candidate });
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        log(`WebRTC [phone ${phoneId}]: ${state}`,
+          state === "connected" ? "ok" : state === "failed" ? "err" : "");
+        setVal("s-rtc", state, state === "connected" ? "ok" : state === "failed" ? "err" : "warn");
+        if (state === "connected") startStats(pc);
+        if (state === "failed" || state === "closed") {
+          pcs.delete(phoneId);
+          phoneCount = Math.max(0, phoneCount - 1);
+          setVal("s-phones", phoneCount);
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      wsSend({ type: "offer", target: phoneId, sdp: pc.localDescription });
+      log(`Offer sent to phone ${phoneId}`);
+    }
+
+    async function handleAnswer(phoneId, sdp) {
+      const pc = pcs.get(phoneId);
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        log(`Answer accepted from phone ${phoneId}`, "ok");
+      } catch (e) {
+        log("setRemoteDescription error: " + e.message, "err");
+      }
+    }
+
+    async function handleIce(phoneId, candidate) {
+      const pc = pcs.get(phoneId);
+      if (!pc || !candidate) return;
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+    }
+
+    // ── Stats ──────────────────────────────────────────────────────────────
+    function startStats(pc) {
+      if (statsTimer) clearInterval(statsTimer);
+      statsTimer = setInterval(async () => {
+        if (!pc) return;
+        const stats = await pc.getStats();
+        stats.forEach(r => {
+          if (r.type === "outbound-rtp" && r.kind === "audio") {
+            setVal("s-bytes", fmtBytes(r.bytesSent));
+          }
+        });
+      }, 1000);
+    }
+
+    function fmtBytes(b) {
+      if (b < 1024) return b + " B";
+      if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+      return (b / 1048576).toFixed(2) + " MB";
+    }
+
+    // ── Start / Stop ───────────────────────────────────────────────────────
+    window.startBroadcast = async function() {
+      document.getElementById("start-btn").disabled = true;
+      log("Starting broadcast…");
+
+      localStream = await captureAudio();
+      if (!localStream) {
+        document.getElementById("start-btn").disabled = false;
+        return;
+      }
+
+      // Tell server the stream is live (starts ffmpeg for HTTP fallback too)
+      wsSend({ type: "start_stream" });
+      setVal("s-http", "active (server-side)", "ok");
+
+      // If phones are already waiting, send offers to all of them
+      // (they'll reconnect and trigger phone_connected via server)
+
+      document.getElementById("start-btn").style.display = "none";
+      document.getElementById("stop-btn").style.display = "block";
+      log("Broadcasting", "ok");
+    };
+
+    window.stopBroadcast = function() {
+      wsSend({ type: "stop_stream" });
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      pcs.forEach(pc => pc.close()); pcs.clear();
+      if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+      setVal("s-audio", "—");
+      setVal("s-rtc", "—");
+      setVal("s-http", "—");
+      setVal("s-bytes", "—");
+      document.getElementById("stop-btn").style.display = "none";
+      document.getElementById("start-btn").style.display = "block";
+      document.getElementById("start-btn").disabled = false;
+      log("Broadcast stopped", "warn");
+    };
+
+    // ── Init ───────────────────────────────────────────────────────────────
+    setVal("s-ws", "connecting…", "info");
+    connectWS();
+  })();
+  </script>
+</body>
+</html>

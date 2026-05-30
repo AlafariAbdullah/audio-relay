@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AudioRelay">
+  <meta name="theme-color" content="#0a0a0f">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <title>AudioRelay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --surface: #12121a; --border: #1e1e2e;
+      --accent: #7c6af7; --accent2: #f76ac8;
+      --green: #4ade80; --red: #f87171;
+      --text: #e8e8f0; --muted: #5a5a7a;
+      --glow: rgba(124,106,247,0.35);
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; overflow: hidden; -webkit-tap-highlight-color: transparent; user-select: none; }
+    body::before { content:''; position:fixed; inset:0; background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"); pointer-events:none; z-index:0; }
+    .app { position:relative; z-index:1; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:max(60px,env(safe-area-inset-top)) 32px max(48px,env(safe-area-inset-bottom)); }
+    .header { width:100%; display:flex; flex-direction:column; align-items:center; gap:6px; }
+    .wordmark { font-size:11px; letter-spacing:0.25em; text-transform:uppercase; color:var(--muted); font-family:'JetBrains Mono',monospace; font-weight:300; }
+    .title { font-size:28px; font-weight:800; letter-spacing:-0.02em; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .orb-wrap { position:relative; display:flex; align-items:center; justify-content:center; width:220px; height:220px; }
+    .orb-ring { position:absolute; border-radius:50%; border:1px solid var(--border); animation:spin 12s linear infinite; }
+    .orb-ring:nth-child(1){width:200px;height:200px;border-top-color:var(--accent);}
+    .orb-ring:nth-child(2){width:176px;height:176px;border-right-color:var(--accent2);animation-direction:reverse;animation-duration:8s;}
+    .orb-ring:nth-child(3){width:152px;height:152px;border-bottom-color:var(--accent);animation-duration:16s;}
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .orb { width:120px; height:120px; border-radius:50%; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:transform 0.15s ease,box-shadow 0.3s ease; position:relative; z-index:2; }
+    .orb:active { transform:scale(0.94); }
+    .orb.playing { box-shadow:0 0 40px var(--glow),0 0 80px rgba(124,106,247,0.15); border-color:var(--accent); }
+    .orb-icon { width:40px; height:40px; }
+    .waveform { display:flex; align-items:center; gap:4px; height:36px; }
+    .bar { width:4px; border-radius:2px; background:linear-gradient(to top,var(--accent),var(--accent2)); animation:wave 0.8s ease-in-out infinite alternate; transform-origin:bottom; }
+    .bar:nth-child(1){animation-delay:0s;animation-duration:0.7s;}
+    .bar:nth-child(2){animation-delay:0.1s;animation-duration:0.9s;}
+    .bar:nth-child(3){animation-delay:0.2s;animation-duration:0.6s;}
+    .bar:nth-child(4){animation-delay:0.15s;animation-duration:1.0s;}
+    .bar:nth-child(5){animation-delay:0.05s;animation-duration:0.75s;}
+    @keyframes wave { from{height:8px;} to{height:32px;} }
+    .orb-glow { position:absolute; width:120px; height:120px; border-radius:50%; background:var(--accent); filter:blur(40px); opacity:0; transition:opacity 0.5s; z-index:1; pointer-events:none; }
+    .status-area { display:flex; flex-direction:column; align-items:center; gap:10px; width:100%; }
+    .status-badge { display:flex; align-items:center; gap:8px; padding:8px 18px; border-radius:100px; background:var(--surface); border:1px solid var(--border); font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); transition:all 0.3s ease; }
+    .status-badge.connected{border-color:rgba(74,222,128,0.3);color:var(--green);}
+    .status-badge.error{border-color:rgba(248,113,113,0.3);color:var(--red);}
+    .status-badge.loading{border-color:rgba(124,106,247,0.3);color:var(--accent);}
+    .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+    .dot.pulse{animation:pulse-dot 1.5s ease infinite;}
+    @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.4;transform:scale(0.7);}}
+    .transport-label{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;opacity:0.6;}
+    .fallback-notice{display:none;font-size:10px;color:var(--accent2);font-family:'JetBrains Mono',monospace;text-align:center;opacity:0.7;}
+    .fallback-notice.show{display:block;}
+    .volume-wrap{width:100%;display:flex;flex-direction:column;gap:10px;}
+    .vol-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+    input[type=range]{-webkit-appearance:none;width:100%;height:4px;border-radius:2px;background:var(--border);outline:none;cursor:pointer;}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));cursor:pointer;box-shadow:0 0 10px var(--glow);}
+    .footer{display:flex;flex-direction:column;align-items:center;gap:6px;}
+    .hint{font-size:11px;color:var(--muted);text-align:center;font-family:'JetBrains Mono',monospace;line-height:1.6;opacity:0.5;}
+    .a2hs{position:fixed;bottom:max(90px,calc(env(safe-area-inset-bottom)+70px));left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 20px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text);text-align:center;line-height:1.6;max-width:280px;z-index:100;display:none;}
+    .a2hs.show{display:block;animation:slide-up 0.4s ease;}
+    .a2hs strong{color:var(--accent);}
+    .a2hs-close{position:absolute;top:8px;right:12px;background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;}
+    @keyframes slide-up{from{opacity:0;transform:translateX(-50%) translateY(20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <span class="wordmark">pc → phone</span>
+      <h1 class="title">AudioRelay</h1>
+    </div>
+    <div class="orb-wrap">
+      <div class="orb-ring"></div>
+      <div class="orb-ring"></div>
+      <div class="orb-ring"></div>
+      <div class="orb" id="orbBtn" onclick="togglePlay()">
+        <svg class="orb-icon" id="playIcon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14 10L30 20L14 30V10Z" fill="url(#pg)"/>
+          <defs><linearGradient id="pg" x1="14" y1="10" x2="30" y2="30" gradientUnits="userSpaceOnUse"><stop stop-color="#7c6af7"/><stop offset="1" stop-color="#f76ac8"/></linearGradient></defs>
+        </svg>
+        <div class="waveform" id="waveform" style="display:none">
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+      </div>
+      <div class="orb-glow" id="orbGlow"></div>
+    </div>
+    <div class="status-area">
+      <div class="status-badge loading" id="statusBadge">
+        <div class="dot pulse" id="statusDot"></div>
+        <span id="statusText">Connecting…</span>
+      </div>
+      <div class="transport-label" id="transportLabel">—</div>
+      <div class="fallback-notice" id="fallbackNotice">⚡ using http fallback · +3–5s latency</div>
+    </div>
+    <div class="volume-wrap">
+      <div class="vol-label"><span>Volume</span><span id="volVal">80%</span></div>
+      <input type="range" id="volSlider" min="0" max="100" value="80" oninput="setVolume(this.value)">
+    </div>
+    <div class="footer">
+      <p class="hint">tap orb to start · stay on same network<br>add to home screen for app experience</p>
+    </div>
+  </div>
+  <div class="a2hs" id="a2hsBanner">
+    <button class="a2hs-close" onclick="dismissA2HS()">×</button>
+    Tap <strong>Share ↑</strong> then<br><strong>"Add to Home Screen"</strong><br>to use as an app
+  </div>
+  <audio id="httpAudio" preload="none"></audio>
+  <script>
+  (() => {
+    let ws = null, pc = null, gainNode = null, audioCtx = null;
+    let playing = false, wsConnected = false, streamAvailable = false;
+    let reconnectTimer = null, fallbackTimer = null, currentVolume = 0.8;
+    let wantsToPlay = false;  // user tapped play, waiting for offer
+
+    const HOST       = location.host;
+    const WS_URL     = `ws://${HOST}/ws`;
+    const STREAM_URL = `http://${HOST}/stream`;
+    const WEBRTC_TIMEOUT_MS = 8000;  // fall back after 8s if WebRTC doesn't connect
+
+    const orbBtn      = document.getElementById("orbBtn");
+    const playIcon    = document.getElementById("playIcon");
+    const waveform    = document.getElementById("waveform");
+    const statusBadge = document.getElementById("statusBadge");
+    const statusDot   = document.getElementById("statusDot");
+    const statusText  = document.getElementById("statusText");
+    const transportLbl= document.getElementById("transportLabel");
+    const fallbackNote= document.getElementById("fallbackNotice");
+    const httpAudio   = document.getElementById("httpAudio");
+    const orbGlow     = document.getElementById("orbGlow");
+
+    function setStatus(state, text, transport) {
+      statusBadge.className = "status-badge " + state;
+      statusText.textContent = text;
+      statusDot.className = "dot" + (state === "loading" ? " pulse" : "");
+      transportLbl.textContent = transport || "—";
+    }
+
+    function setPlaying(val) {
+      playing = val;
+      orbBtn.classList.toggle("playing", val);
+      playIcon.style.display  = val ? "none"  : "block";
+      waveform.style.display  = val ? "flex"  : "none";
+      orbGlow.style.opacity   = val ? "0.2"   : "0";
+    }
+
+    // ── WebRTC ─────────────────────────────────────────────────────────────
+    // Phone is RECEIVER only — it waits for the PC to send an offer.
+    // Flow: phone registers → server tells PC → PC sends offer → phone answers.
+
+    async function handleOffer(sdp) {
+      // Clean up any previous connection
+      if (pc) { pc.close(); pc = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+
+      clearTimeout(fallbackTimer);
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode  = audioCtx.createGain();
+      gainNode.gain.value = currentVolume;
+      gainNode.connect(audioCtx.destination);
+
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ]
+      });
+
+      pc.ontrack = (e) => {
+        if (e.track.kind !== "audio") return;
+        const stream = e.streams[0] || new MediaStream([e.track]);
+        const src = audioCtx.createMediaStreamSource(stream);
+        src.connect(gainNode);
+        audioCtx.resume();
+        clearTimeout(fallbackTimer);
+        stopHTTPStream();
+        setPlaying(true);
+        setStatus("connected", "Live · WebRTC", "webrtc · ~200ms");
+        fallbackNote.classList.remove("show");
+      };
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) wsSend({ type: "ice", candidate: e.candidate });
+      };
+
+      pc.onconnectionstatechange = () => {
+        const s = pc.connectionState;
+        if (s === "failed" || s === "closed") {
+          setPlaying(false);
+          setStatus("error", "WebRTC lost · using fallback", "—");
+          startHTTPStream();
+        }
+      };
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        wsSend({ type: "answer", sdp: pc.localDescription });
+        setStatus("loading", "Connecting WebRTC…", "negotiating…");
+      } catch (err) {
+        console.error("WebRTC answer failed:", err);
+        startHTTPStream();
+      }
+    }
+
+    async function handleIce(candidate) {
+      if (!pc || !candidate) return;
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+    }
+
+    // ── HTTP fallback ──────────────────────────────────────────────────────
+    function startHTTPStream() {
+      if (playing) return;  // already playing via WebRTC
+      httpAudio.src = STREAM_URL;
+      httpAudio.volume = currentVolume;
+      httpAudio.play().then(() => {
+        if (playing) { stopHTTPStream(); return; }  // WebRTC won the race
+        setPlaying(true);
+        setStatus("connected", "Live · HTTP stream", "http · ~5s latency");
+        fallbackNote.classList.add("show");
+      }).catch(() => {
+        setStatus("error", "Tap to retry", "—");
+      });
+    }
+
+    function stopHTTPStream() {
+      httpAudio.pause();
+      httpAudio.removeAttribute("src");
+      httpAudio.load();
+    }
+
+    // ── Play / Stop ────────────────────────────────────────────────────────
+    window.togglePlay = function() {
+      if (playing) {
+        // Stop everything
+        clearTimeout(fallbackTimer);
+        wantsToPlay = false;
+        if (pc) { pc.close(); pc = null; }
+        if (audioCtx) { audioCtx.close(); audioCtx = null; }
+        stopHTTPStream();
+        setPlaying(false);
+        setStatus(wsConnected ? "connected" : "loading",
+                  wsConnected ? (streamAvailable ? "PC streaming · tap to listen" : "Ready") : "Reconnecting…", "—");
+        fallbackNote.classList.remove("show");
+      } else {
+        // User wants to play — tell the PC, it will send us a WebRTC offer
+        wantsToPlay = true;
+        wsSend({ type: "request_offer" });
+        setStatus("loading", "Requesting stream…", "negotiating…");
+
+        // If PC doesn't respond with an offer in time, fall back to HTTP
+        fallbackTimer = setTimeout(() => {
+          if (!playing) {
+            setStatus("loading", "WebRTC timeout · trying HTTP…", "—");
+            startHTTPStream();
+          }
+        }, WEBRTC_TIMEOUT_MS);
+      }
+    };
+
+    window.setVolume = function(v) {
+      document.getElementById("volVal").textContent = v + "%";
+      currentVolume = v / 100;
+      httpAudio.volume = currentVolume;
+      if (gainNode) gainNode.gain.value = currentVolume;
+    };
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+    function wsSend(obj) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    }
+
+    function connectWS() {
+      if (ws) { try { ws.close(); } catch {} }
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        wsConnected = true;
+        clearTimeout(reconnectTimer);
+        wsSend({ type: "register_phone" });
+      };
+
+      ws.onmessage = async (e) => {
+        let msg; try { msg = JSON.parse(e.data); } catch { return; }
+        switch (msg.type) {
+          case "registered":
+            streamAvailable = msg.streaming;
+            setStatus("connected",
+              streamAvailable ? "PC streaming · tap to listen" : "Ready", "—");
+            break;
+
+          case "stream_started":
+            streamAvailable = true;
+            if (!playing) setStatus("connected", "PC streaming · tap to listen", "—");
+            break;
+
+          case "stream_stopped":
+            streamAvailable = false;
+            clearTimeout(fallbackTimer);
+            wantsToPlay = false;
+            if (pc) { pc.close(); pc = null; }
+            stopHTTPStream();
+            setPlaying(false);
+            setStatus("error", "Stream stopped", "—");
+            fallbackNote.classList.remove("show");
+            break;
+
+          case "no_pc":
+            // No broadcaster connected — skip WebRTC, go straight to HTTP
+            clearTimeout(fallbackTimer);
+            setStatus("loading", "No broadcaster · trying HTTP…", "—");
+            startHTTPStream();
+            break;
+
+          // PC sends us an offer — this is the correct WebRTC flow
+          case "offer":
+            if (wantsToPlay) await handleOffer(msg.sdp);
+            break;
+
+          case "ice":
+            await handleIce(msg.candidate);
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        wsConnected = false;
+        setStatus("loading", "Reconnecting…", "—");
+        reconnectTimer = setTimeout(connectWS, 3000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    // ── Add to home screen (iOS) ───────────────────────────────────────────
+    window.dismissA2HS = function() {
+      document.getElementById("a2hsBanner").classList.remove("show");
+      localStorage.setItem("a2hs_dismissed", "1");
+    };
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (isIOS && !navigator.standalone && !localStorage.getItem("a2hs_dismissed"))
+      setTimeout(() => document.getElementById("a2hsBanner").classList.add("show"), 3500);
+
+    setStatus("loading", "Connecting…", "—");
+    connectWS();
+  })();
+  </script>
+</body>
+</html>
