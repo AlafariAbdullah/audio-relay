@@ -3,8 +3,6 @@
 Stream audio from your PC to an iPhone via Safari. No app install needed.
 WebRTC (low latency) with automatic HTTP stream fallback.
 
-Zero npm dependencies — pure Node.js stdlib only.
-
 ---
 
 ## Quick Start
@@ -69,14 +67,6 @@ iPhone Safari PWA
 ├── Tries WebRTC (if PC sender connected)
 └── Falls back to HTTP stream automatically
 ```
-
----
-
-## Add to iPhone Home Screen
-
-1. Open Safari → `http://<pc-ip>:3000`
-2. Share button → "Add to Home Screen" → Add
-3. Opens fullscreen, looks like a native app
 
 ---
 
